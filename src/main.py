@@ -7,6 +7,8 @@ from mem0 import Memory
 import asyncio
 import json
 import os
+import signal
+import sys
 
 from utils import get_mem0_client
 
@@ -14,6 +16,9 @@ load_dotenv()
 
 # Default user ID for memory operations
 DEFAULT_USER_ID = "user"
+
+# Global shutdown event
+shutdown_event = asyncio.Event()
 
 # Create a dataclass for our application context
 @dataclass
@@ -38,8 +43,26 @@ async def mem0_lifespan(server: FastMCP) -> AsyncIterator[Mem0Context]:
     try:
         yield Mem0Context(mem0_client=mem0_client)
     finally:
-        # No explicit cleanup needed for the Mem0 client
-        pass
+        # Cleanup: Close any open connections
+        try:
+            # Try to close the Mem0 client directly
+            if hasattr(mem0_client, 'close'):
+                await mem0_client.close()
+            elif hasattr(mem0_client, '_client') and hasattr(mem0_client._client, 'close'):
+                await mem0_client._client.close()
+
+            # Try to close underlying database connections
+            if hasattr(mem0_client, '_vector_store') and hasattr(mem0_client._vector_store, 'close'):
+                await mem0_client._vector_store.close()
+
+            # Try to close any HTTP clients
+            if hasattr(mem0_client, '_llm_client') and hasattr(mem0_client._llm_client, 'close'):
+                await mem0_client._llm_client.close()
+            if hasattr(mem0_client, '_embedder_client') and hasattr(mem0_client._embedder_client, 'close'):
+                await mem0_client._embedder_client.close()
+
+        except Exception as e:
+            print(f"Warning: Error during cleanup: {e}")
 
 # Initialize FastMCP server with the Mem0 client as context
 mcp = FastMCP(
@@ -120,12 +143,34 @@ async def search_memories(ctx: Context, query: str, limit: int = 3, user_id: str
 
 async def main():
     transport = os.getenv("TRANSPORT", "sse")
-    if transport == 'sse':
-        # Run the MCP server with sse transport
-        await mcp.run_sse_async()
-    else:
-        # Run the MCP server with stdio transport
-        await mcp.run_stdio_async()
+
+    # Set up signal handlers for graceful shutdown
+    def signal_handler(signum, frame):
+        print(f"\nReceived signal {signum}. Shutting down gracefully...")
+        shutdown_event.set()
+
+    # Register signal handlers
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+
+    try:
+        if transport == 'sse':
+            # Run the MCP server with sse transport
+            await mcp.run_sse_async()
+        else:
+            # Run the MCP server with stdio transport
+            await mcp.run_stdio_async()
+    except KeyboardInterrupt:
+        print("\nShutting down gracefully...")
+    except Exception as e:
+        print(f"Error running server: {e}")
+        sys.exit(1)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\nServer stopped by user.")
+    except Exception as e:
+        print(f"Fatal error: {e}")
+        sys.exit(1)

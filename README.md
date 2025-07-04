@@ -22,6 +22,8 @@ The server provides three essential memory management tools:
 2. **`get_all_memories`**: Retrieve all stored memories for comprehensive context
 3. **`search_memories`**: Find relevant memories using semantic search
 
+All tools support optional user isolation through a `user_id` parameter, allowing you to maintain separate memory spaces for different users or sessions.
+
 ## Prerequisites
 
 - Python 3.12+
@@ -136,18 +138,11 @@ Once you have the server running with SSE transport, you can connect to it using
 
 #### User ID Parameter (Optional)
 
-You can optionally specify a user ID as a query parameter in the SSE URL to isolate memories for different users:
+You can optionally specify a user ID as a parameter to each tool to isolate memories for different users. All tools accept an optional `user_id` parameter:
 
-```json
-{
-  "mcpServers": {
-    "mem0": {
-      "transport": "sse",
-      "url": "http://localhost:8050/sse?user_id=alice"
-    }
-  }
-}
-```
+- `save_memory(text, user_id="alice")` - Save memory for user "alice"
+- `get_all_memories(user_id="alice")` - Get all memories for user "alice"
+- `search_memories(query, user_id="alice")` - Search memories for user "alice"
 
 If no `user_id` parameter is provided, the server will use a default user ID of "user". This allows you to:
 

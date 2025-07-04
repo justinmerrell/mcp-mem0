@@ -10,7 +10,7 @@ import os
 import signal
 import sys
 
-from utils import get_mem0_client
+from utils import get_mem0_client, reset_mem0_client
 
 load_dotenv()
 
@@ -63,6 +63,9 @@ async def mem0_lifespan(server: FastMCP) -> AsyncIterator[Mem0Context]:
 
         except Exception as e:
             print(f"Warning: Error during cleanup: {e}")
+        finally:
+            # Reset the global client instance
+            reset_mem0_client()
 
 # Initialize FastMCP server with the Mem0 client as context
 mcp = FastMCP(

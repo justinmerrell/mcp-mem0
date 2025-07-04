@@ -15,6 +15,28 @@ load_dotenv()
 # Default user ID for memory operations
 DEFAULT_USER_ID = "user"
 
+def get_user_id_from_context(ctx: Context) -> str:
+    """
+    Extract user_id from the request context or return default.
+
+    Args:
+        ctx: The MCP server context
+
+    Returns:
+        str: The user ID from query parameters or default
+    """
+    try:
+        # Try to get user_id from query parameters in the request
+        if hasattr(ctx, 'request_context') and hasattr(ctx.request_context, 'request'):
+            request = ctx.request_context.request
+            if hasattr(request, 'query_params'):
+                user_id = request.query_params.get('user_id', DEFAULT_USER_ID)
+                return user_id
+    except Exception:
+        pass
+
+    return DEFAULT_USER_ID
+
 # Create a dataclass for our application context
 @dataclass
 class Mem0Context:
@@ -25,16 +47,16 @@ class Mem0Context:
 async def mem0_lifespan(server: FastMCP) -> AsyncIterator[Mem0Context]:
     """
     Manages the Mem0 client lifecycle.
-    
+
     Args:
         server: The FastMCP server instance
-        
+
     Yields:
         Mem0Context: The context containing the Mem0 client
     """
     # Create and return the Memory client with the helper function in utils.py
     mem0_client = get_mem0_client()
-    
+
     try:
         yield Mem0Context(mem0_client=mem0_client)
     finally:
@@ -48,7 +70,7 @@ mcp = FastMCP(
     lifespan=mem0_lifespan,
     host=os.getenv("HOST", "0.0.0.0"),
     port=os.getenv("PORT", "8050")
-)        
+)
 
 @mcp.tool()
 async def save_memory(ctx: Context, text: str) -> str:
@@ -63,16 +85,17 @@ async def save_memory(ctx: Context, text: str) -> str:
     """
     try:
         mem0_client = ctx.request_context.lifespan_context.mem0_client
+        user_id = get_user_id_from_context(ctx)
         messages = [{"role": "user", "content": text}]
-        mem0_client.add(messages, user_id=DEFAULT_USER_ID)
-        return f"Successfully saved memory: {text[:100]}..." if len(text) > 100 else f"Successfully saved memory: {text}"
+        mem0_client.add(messages, user_id=user_id)
+        return f"Successfully saved memory for user '{user_id}': {text[:100]}..." if len(text) > 100 else f"Successfully saved memory for user '{user_id}': {text}"
     except Exception as e:
         return f"Error saving memory: {str(e)}"
 
 @mcp.tool()
 async def get_all_memories(ctx: Context) -> str:
     """Get all stored memories for the user.
-    
+
     Call this tool when you need complete context of all previously memories.
 
     Args:
@@ -83,7 +106,8 @@ async def get_all_memories(ctx: Context) -> str:
     """
     try:
         mem0_client = ctx.request_context.lifespan_context.mem0_client
-        memories = mem0_client.get_all(user_id=DEFAULT_USER_ID)
+        user_id = get_user_id_from_context(ctx)
+        memories = mem0_client.get_all(user_id=user_id)
         if isinstance(memories, dict) and "results" in memories:
             flattened_memories = [memory["memory"] for memory in memories["results"]]
         else:
@@ -106,7 +130,8 @@ async def search_memories(ctx: Context, query: str, limit: int = 3) -> str:
     """
     try:
         mem0_client = ctx.request_context.lifespan_context.mem0_client
-        memories = mem0_client.search(query, user_id=DEFAULT_USER_ID, limit=limit)
+        user_id = get_user_id_from_context(ctx)
+        memories = mem0_client.search(query, user_id=user_id, limit=limit)
         if isinstance(memories, dict) and "results" in memories:
             flattened_memories = [memory["memory"] for memory in memories["results"]]
         else:

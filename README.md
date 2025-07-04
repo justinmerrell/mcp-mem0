@@ -16,13 +16,15 @@ The implementation follows the best practices laid out by Anthropic for building
 
 ## Features
 
-The server provides three essential memory management tools:
+The server provides five essential memory management tools:
 
 1. **`save_memory`**: Store any information in long-term memory with semantic indexing
-2. **`get_all_memories`**: Retrieve all stored memories for comprehensive context
-3. **`search_memories`**: Find relevant memories using semantic search
+2. **`save_procedural_memory`**: Store structured summaries of AI agent actions and interactions
+3. **`get_all_memories`**: Retrieve all stored memories for comprehensive context
+4. **`search_memories`**: Find relevant memories using semantic search
+5. **`search_procedural_memories`**: Search specifically for procedural memories
 
-All tools support optional user isolation through a `user_id` parameter, allowing you to maintain separate memory spaces for different users or sessions.
+All tools support optional user isolation through a `user_id` parameter, allowing you to maintain separate memory spaces for different users or sessions. Procedural memory tools also support `agent_id` for tracking specific AI agents.
 
 ## Prerequisites
 
@@ -136,19 +138,35 @@ Once you have the server running with SSE transport, you can connect to it using
 }
 ```
 
-#### User ID Parameter (Optional)
+#### User ID and Agent ID Parameters (Optional)
 
-You can optionally specify a user ID as a parameter to each tool to isolate memories for different users. All tools accept an optional `user_id` parameter:
+You can optionally specify a user ID and/or agent ID as parameters to each tool to isolate and filter memories:
 
 - `save_memory(text, user_id="alice")` - Save memory for user "alice"
-- `get_all_memories(user_id="alice")` - Get all memories for user "alice"
-- `search_memories(query, user_id="alice")` - Search memories for user "alice"
+- `get_all_memories(user_id="alice", agent_id="coding_agent_001")` - Get all memories for user "alice" from agent "coding_agent_001"
+- `search_memories(query, user_id="alice", agent_id="coding_agent_001")` - Search memories for user "alice" from agent "coding_agent_001"
 
-If no `user_id` parameter is provided, the server will use a default user ID of "user". This allows you to:
+If no `user_id` parameter is provided, the server will use a default user ID of "user". If no `agent_id` is provided, all memories (regardless of agent) will be included. This allows you to:
 
 - Separate memories between different users or sessions
+- Filter memories by specific AI agents
 - Maintain privacy and isolation of memory data
 - Support multi-tenant scenarios
+
+#### Procedural Memory Support
+
+The server supports procedural memory for AI coding systems and agents. Procedural memory stores structured summaries of AI agent actions, interactions, and outcomes:
+
+- `save_procedural_memory(text, agent_id="coding_agent_001", user_id="alice")` - Save procedural memory for a specific agent
+- `search_procedural_memories(query, agent_id="coding_agent_001", user_id="alice")` - Search procedural memories for a specific agent
+- `get_all_memories(user_id="alice", agent_id="coding_agent_001")` - Get all memories (including procedural) for a specific agent
+
+**Procedural Memory Use Cases:**
+
+- Track coding workflows and debugging processes
+- Store successful problem-solving approaches
+- Maintain context across development sessions
+- Create reusable procedure libraries for AI agents
 
 > **Note for Windsurf users**: Use `serverUrl` instead of `url` in your configuration:
 >

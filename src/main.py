@@ -78,24 +78,49 @@ mcp = FastMCP(
 
 @mcp.tool()
 async def save_memory(ctx: Context, text: str, user_id: str = DEFAULT_USER_ID, agent_id: str = None, memory_type: str = None) -> str:
-    """Save information to your long-term memory.
+    """Store information in long-term memory for future retrieval using semantic search.
 
-    This tool is designed to store any type of information that might be useful in the future.
-    The content will be processed and indexed for later retrieval through semantic search.
+    This tool saves any type of information that might be useful in the future. The content
+    is processed, embedded, and indexed for later retrieval through semantic search. Use this
+    when you want to remember conversations, facts, preferences, or any contextual information.
+
+    **When to use:**
+    - Storing conversation history or important details
+    - Saving user preferences or settings
+    - Recording factual information for future reference
+    - Creating a knowledge base of interactions
+    - Storing procedural memories (use memory_type="procedural_memory" with agent_id)
+
+    **Examples:**
+    - "User prefers dark mode and uses Python for backend development"
+    - "Discussed project requirements: need authentication, user management, and API endpoints"
+    - "User's name is John, works at TechCorp, interested in AI and machine learning"
+    - For procedural memories: "Agent analyzed user requirements, created database schema with 3 tables,
+      implemented REST API endpoints, and deployed to staging environment. Process took 2 hours."
+
+    **Limitations:**
+    - Content is limited to text format
+    - Maximum text length depends on the underlying Mem0 implementation
+    - Memories are isolated by user_id for privacy
 
     Args:
         ctx: The MCP server provided context which includes the Mem0 client
-        text: The content to store in memory, including any relevant details and context
-        user_id: Optional user ID to isolate memories for different users (default: "user")
-        agent_id: Optional agent ID for procedural memory (required when memory_type is "procedural_memory")
-        memory_type: Optional memory type - use "procedural_memory" for procedural memory creation
+        text: The content to store in memory. Include relevant details, context, and any
+              information that would be useful for future reference. Be descriptive and
+              comprehensive to improve search relevance.
+        user_id: User identifier to isolate memories for different users (default: "user").
+                 Use unique IDs for different users to maintain privacy.
+        agent_id: Optional agent identifier for procedural memory. Required when
+                  memory_type is "procedural_memory" to associate memories with specific agents.
+        memory_type: Optional memory type classification. Use "procedural_memory" for
+                     storing agent actions and workflows.
     """
     try:
         mem0_client = ctx.request_context.lifespan_context.mem0_client
         messages = [{"role": "user", "content": text}]
 
         # Prepare add parameters
-        add_params = {"user_id": user_id}
+        add_params = {"user_id": user_id, "version": "v2"}
         if agent_id:
             add_params["agent_id"] = agent_id
         if memory_type:
@@ -110,51 +135,42 @@ async def save_memory(ctx: Context, text: str, user_id: str = DEFAULT_USER_ID, a
         return f"Error saving memory: {str(e)}"
 
 @mcp.tool()
-async def save_procedural_memory(ctx: Context, text: str, agent_id: str, user_id: str = DEFAULT_USER_ID) -> str:
-    """Save procedural memory for an AI agent's actions and interactions.
-
-    This tool is specifically designed for storing structured summaries of AI agent actions,
-    interactions, and their outcomes during specific tasks or processes. It creates a
-    detailed log or "how-to" guide that can be referenced later.
-
-    Args:
-        ctx: The MCP server provided context which includes the Mem0 client
-        text: The content describing the agent's actions, interactions, and outcomes
-        agent_id: Required agent ID to associate the procedural memory with a specific agent
-        user_id: Optional user ID to isolate memories for different users (default: "user")
-    """
-    try:
-        mem0_client = ctx.request_context.lifespan_context.mem0_client
-        messages = [{"role": "user", "content": text}]
-
-        mem0_client.add(
-            messages,
-            user_id=user_id,
-            agent_id=agent_id,
-            memory_type="procedural_memory"
-        )
-
-        return f"Successfully saved procedural memory for agent '{agent_id}' (user '{user_id}'): {text[:100]}..." if len(text) > 100 else f"Successfully saved procedural memory for agent '{agent_id}' (user '{user_id}'): {text}"
-    except Exception as e:
-        return f"Error saving procedural memory: {str(e)}"
-
-@mcp.tool()
 async def get_all_memories(ctx: Context, user_id: str = DEFAULT_USER_ID, agent_id: str = None) -> str:
-    """Get all stored memories for the user.
+    """Retrieve all stored memories for a user, optionally filtered by agent.
 
-    Call this tool when you need complete context of all previously memories.
+    This tool returns a complete list of all memories stored for a specific user. Use this
+    when you need comprehensive context of all previous interactions, facts, and procedural
+    memories. Results are returned in JSON format with creation timestamps and content.
+
+    **When to use:**
+    - Getting complete context for a new conversation
+    - Reviewing all stored information about a user
+    - Analyzing patterns in stored memories
+    - Debugging or auditing memory contents
+    - Creating backups or exports of memory data
+
+    **Examples:**
+    - Get all memories for user "john_doe"
+    - Get all procedural memories for agent "code_assistant" belonging to user "alice"
+    - Retrieve complete memory history for analysis
+
+    **Limitations:**
+    - Results are paginated (default 50 items per page)
+    - Large memory sets may impact performance
+    - Returns all memory types mixed together unless filtered by agent_id
+    - JSON output format for structured data access
 
     Args:
         ctx: The MCP server provided context which includes the Mem0 client
-        user_id: Optional user ID to retrieve memories for a specific user (default: "user")
-        agent_id: Optional agent ID to filter memories for a specific agent
-
-    Returns a JSON formatted list of all stored memories, including when they were created
-    and their content. Results are paginated with a default of 50 items per page.
+        user_id: User identifier to retrieve memories for a specific user (default: "user").
+                 Use the same user_id that was used when saving memories.
+        agent_id: Optional agent identifier to filter memories for a specific agent.
+                  When provided, only returns memories associated with this agent.
+                  Useful for isolating procedural memories or agent-specific data.
     """
     try:
         mem0_client = ctx.request_context.lifespan_context.mem0_client
-        memories = mem0_client.get_all(user_id=user_id)
+        memories = mem0_client.get_all(user_id=user_id, version="v2")
 
         if isinstance(memories, dict) and "results" in memories:
             # Filter by agent_id if provided
@@ -175,21 +191,56 @@ async def get_all_memories(ctx: Context, user_id: str = DEFAULT_USER_ID, agent_i
 
 @mcp.tool()
 async def search_memories(ctx: Context, query: str, limit: int = 3, user_id: str = DEFAULT_USER_ID, agent_id: str = None) -> str:
-    """Search memories using semantic search.
+    """Search memories using semantic search to find relevant information from stored knowledge.
 
-    This tool should be called to find relevant information from your memory. Results are ranked by relevance.
-    Always search your memories before making decisions to ensure you leverage your existing knowledge.
+    This tool performs semantic search across all stored memories to find the most relevant
+    information based on your query. Results are ranked by relevance and can include both
+    general memories and procedural memories. Always search your memories before making
+    decisions to leverage existing knowledge effectively.
+
+    **When to use:**
+    - Looking for specific information or facts
+    - Finding relevant past conversations or interactions
+    - Retrieving user preferences or settings
+    - Searching for procedural knowledge or workflows (use agent_id to filter)
+    - Getting context for current tasks or decisions
+
+    **Examples:**
+    - Search for "authentication setup" to find related procedures
+    - Query "user preferences" to find stored settings
+    - Search "project requirements" to recall discussed features
+    - Look for "debugging steps" to find troubleshooting procedures
+    - Search for "deployment process" with agent_id to find specific agent workflows
+
+    **Best practices:**
+    - Use natural language queries for better semantic matching
+    - Be specific but not overly restrictive in your search terms
+    - Start with broader queries and refine if needed
+    - Use the same user_id that was used when saving memories
+    - Use agent_id to filter for procedural memories from specific agents
+
+    **Limitations:**
+    - Search quality depends on how well memories were originally described
+    - Results limited to 3 items by default (adjustable via limit parameter)
+    - Semantic search may not find exact text matches
+    - Performance may vary with large memory sets
 
     Args:
         ctx: The MCP server provided context which includes the Mem0 client
-        query: Search query string describing what you're looking for. Can be natural language.
-        limit: Maximum number of results to return (default: 3)
-        user_id: Optional user ID to search memories for a specific user (default: "user")
-        agent_id: Optional agent ID to filter memories for a specific agent
+        query: Search query in natural language describing what you're looking for.
+               Be descriptive and use relevant keywords. Examples: "user authentication setup",
+               "project requirements discussion", "debugging steps for API errors".
+        limit: Maximum number of results to return (default: 3, max recommended: 10).
+               Higher limits may impact performance and relevance.
+        user_id: User identifier to search memories for a specific user (default: "user").
+                 Use the same user_id that was used when saving memories.
+        agent_id: Optional agent identifier to filter memories for a specific agent.
+                  When provided, only searches memories associated with this agent.
+                  Useful for finding agent-specific procedures or workflows.
     """
     try:
         mem0_client = ctx.request_context.lifespan_context.mem0_client
-        memories = mem0_client.search(query, user_id=user_id, limit=limit)
+        memories = mem0_client.search(query, user_id=user_id, limit=limit, version="v2")
 
         if isinstance(memories, dict) and "results" in memories:
             # Filter by agent_id if provided
@@ -207,44 +258,6 @@ async def search_memories(ctx: Context, query: str, limit: int = 3, user_id: str
         return json.dumps(flattened_memories, indent=2)
     except Exception as e:
         return f"Error searching memories: {str(e)}"
-
-@mcp.tool()
-async def search_procedural_memories(ctx: Context, query: str, agent_id: str = None, limit: int = 3, user_id: str = DEFAULT_USER_ID) -> str:
-    """Search procedural memories using semantic search.
-
-    This tool searches specifically for procedural memories - structured summaries of AI agent
-    actions, interactions, and outcomes. Useful for finding relevant procedures or workflows.
-
-    Args:
-        ctx: The MCP server provided context which includes the Mem0 client
-        query: Search query string describing what procedural memory you're looking for
-        agent_id: Optional agent ID to search memories for a specific agent
-        limit: Maximum number of results to return (default: 3)
-        user_id: Optional user ID to search memories for a specific user (default: "user")
-    """
-    try:
-        mem0_client = ctx.request_context.lifespan_context.mem0_client
-
-        # Search with memory type filter if supported by the underlying implementation
-        # For now, we'll use the standard search and filter results
-        memories = mem0_client.search(query, user_id=user_id, limit=limit)
-
-        if isinstance(memories, dict) and "results" in memories:
-            # Filter for procedural memories if agent_id is provided
-            if agent_id:
-                filtered_memories = [
-                    memory for memory in memories["results"]
-                    if memory.get("metadata") and memory.get("metadata", {}).get("agent_id") == agent_id
-                ]
-                flattened_memories = [memory["memory"] for memory in filtered_memories]
-            else:
-                flattened_memories = [memory["memory"] for memory in memories["results"]]
-        else:
-            flattened_memories = memories
-
-        return json.dumps(flattened_memories, indent=2)
-    except Exception as e:
-        return f"Error searching procedural memories: {str(e)}"
 
 async def main():
     transport = os.getenv("TRANSPORT", "sse")

@@ -161,7 +161,7 @@ async def get_all_memories(ctx: Context, user_id: str = DEFAULT_USER_ID, agent_i
             if agent_id:
                 filtered_memories = [
                     memory for memory in memories["results"]
-                    if memory.get("metadata", {}).get("agent_id") == agent_id
+                    if memory.get("metadata") and memory.get("metadata", {}).get("agent_id") == agent_id
                 ]
                 flattened_memories = [memory["memory"] for memory in filtered_memories]
             else:
@@ -196,7 +196,7 @@ async def search_memories(ctx: Context, query: str, limit: int = 3, user_id: str
             if agent_id:
                 filtered_memories = [
                     memory for memory in memories["results"]
-                    if memory.get("metadata", {}).get("agent_id") == agent_id
+                    if memory.get("metadata") and memory.get("metadata", {}).get("agent_id") == agent_id
                 ]
                 flattened_memories = [memory["memory"] for memory in filtered_memories]
             else:
@@ -234,7 +234,7 @@ async def search_procedural_memories(ctx: Context, query: str, agent_id: str = N
             if agent_id:
                 filtered_memories = [
                     memory for memory in memories["results"]
-                    if memory.get("metadata", {}).get("agent_id") == agent_id
+                    if memory.get("metadata") and memory.get("metadata", {}).get("agent_id") == agent_id
                 ]
                 flattened_memories = [memory["memory"] for memory in filtered_memories]
             else:

@@ -75,7 +75,7 @@ mcp = FastMCP(
 )
 
 @mcp.tool()
-async def save_memory(ctx: Context, text: str, user_id: Optional[str] = None, agent_id: Optional[str] = None, memory_type: Optional[str] = None) -> str:
+async def save_memory(ctx: Context, text: str, user_id: Optional[str] = None, agent_id: Optional[str] = None, memory_type: Optional[str] = "") -> str:
     """Store information in long-term memory for future retrieval using semantic search.
 
     This tool saves any type of information that might be useful in the future. The content
@@ -116,12 +116,11 @@ async def save_memory(ctx: Context, text: str, user_id: Optional[str] = None, ag
     """
     try:
         mem0_client = ctx.request_context.lifespan_context.mem0_client
-        messages = [{"role": "user", "content": text}]
 
         # Prepare add parameters
         add_params = {"user_id": user_id, "agent_id": agent_id, "memory_type": memory_type}
 
-        mem0_client.add(messages, **add_params)
+        mem0_client.add(text, **add_params)
 
         # Build response message
         parts = ["Successfully saved memory"]

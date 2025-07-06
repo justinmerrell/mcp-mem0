@@ -119,20 +119,24 @@ async def save_memory(ctx: Context, text: str, user_id: Optional[str] = None, ag
         messages = [{"role": "user", "content": text}]
 
         # Prepare add parameters
-        add_params = {}
-        if user_id is not None:
-            add_params["user_id"] = user_id
-        if agent_id:
-            add_params["agent_id"] = agent_id
-        if memory_type:
-            add_params["memory_type"] = memory_type
+        add_params = {"user_id": user_id, "agent_id": agent_id, "memory_type": memory_type}
 
         mem0_client.add(messages, **add_params)
 
-        memory_type_str = f" ({memory_type})" if memory_type else ""
-        agent_str = f" for agent '{agent_id}'" if agent_id else ""
-        user_str = f" for user '{user_id}'" if user_id else " (anonymous/shared)"
-        return f"Successfully saved memory{memory_type_str}{user_str}{agent_str}: {text[:100]}..." if len(text) > 100 else f"Successfully saved memory{memory_type_str}{user_str}{agent_str}: {text}"
+        # Build response message
+        parts = ["Successfully saved memory"]
+        if memory_type:
+            parts.append(f"({memory_type})")
+        if user_id:
+            parts.append(f"for user '{user_id}'")
+        else:
+            parts.append("(anonymous/shared)")
+        if agent_id:
+            parts.append(f"for agent '{agent_id}'")
+
+        message = " ".join(parts) + ": "
+        message += text[:100] + "..." if len(text) > 100 else text
+        return message
     except Exception as e:
         return f"Error saving memory: {str(e)}"
 
@@ -175,22 +179,13 @@ async def get_all_memories(ctx: Context, user_id: Optional[str] = None, agent_id
         mem0_client = ctx.request_context.lifespan_context.mem0_client
 
         # Prepare search parameters
-        search_params = {}
-        if user_id is not None:
-            search_params["user_id"] = user_id
+        search_params = {"user_id": user_id, "agent_id": agent_id}
 
         memories = mem0_client.get_all(**search_params)
 
+        # Handle response format
         if isinstance(memories, dict) and "results" in memories:
-            # Filter by agent_id if provided
-            if agent_id:
-                filtered_memories = [
-                    memory for memory in memories["results"]
-                    if memory.get("metadata") and memory.get("metadata", {}).get("agent_id") == agent_id
-                ]
-                flattened_memories = [memory["memory"] for memory in filtered_memories]
-            else:
-                flattened_memories = [memory["memory"] for memory in memories["results"]]
+            flattened_memories = [memory["memory"] for memory in memories["results"]]
         else:
             flattened_memories = memories
 
@@ -252,22 +247,13 @@ async def search_memories(ctx: Context, query: str, limit: int = 3, user_id: Opt
         mem0_client = ctx.request_context.lifespan_context.mem0_client
 
         # Prepare search parameters
-        search_params = {"query": query, "limit": limit}
-        if user_id is not None:
-            search_params["user_id"] = user_id
+        search_params = {"query": query, "limit": limit, "user_id": user_id, "agent_id": agent_id}
 
         memories = mem0_client.search(**search_params)
 
+        # Handle response format
         if isinstance(memories, dict) and "results" in memories:
-            # Filter by agent_id if provided
-            if agent_id:
-                filtered_memories = [
-                    memory for memory in memories["results"]
-                    if memory.get("metadata") and memory.get("metadata", {}).get("agent_id") == agent_id
-                ]
-                flattened_memories = [memory["memory"] for memory in filtered_memories]
-            else:
-                flattened_memories = [memory["memory"] for memory in memories["results"]]
+            flattened_memories = [memory["memory"] for memory in memories["results"]]
         else:
             flattened_memories = memories
 

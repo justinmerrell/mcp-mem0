@@ -9,13 +9,11 @@ import json
 import os
 import signal
 import sys
+from typing import Optional
 
 from utils import get_mem0_client, reset_mem0_client
 
 load_dotenv()
-
-# Default user ID for memory operations
-DEFAULT_USER_ID = "user"
 
 # Global shutdown event
 shutdown_event = asyncio.Event()
@@ -77,7 +75,7 @@ mcp = FastMCP(
 )
 
 @mcp.tool()
-async def save_memory(ctx: Context, text: str, user_id: str = DEFAULT_USER_ID, agent_id: str = None, memory_type: str = None) -> str:
+async def save_memory(ctx: Context, text: str, user_id: Optional[str] = None, agent_id: Optional[str] = None, memory_type: Optional[str] = None) -> str:
     """Store information in long-term memory for future retrieval using semantic search.
 
     This tool saves any type of information that might be useful in the future. The content
@@ -108,8 +106,9 @@ async def save_memory(ctx: Context, text: str, user_id: str = DEFAULT_USER_ID, a
         text: The content to store in memory. Include relevant details, context, and any
               information that would be useful for future reference. Be descriptive and
               comprehensive to improve search relevance.
-        user_id: User identifier to isolate memories for different users (default: "user").
-                 Use unique IDs for different users to maintain privacy.
+        user_id: Optional user identifier to isolate memories for different users.
+                 Use unique IDs for different users to maintain privacy. If None or not provided,
+                 memories will be stored as anonymous/shared memories.
         agent_id: Optional agent identifier for procedural memory. Required when
                   memory_type is "procedural_memory" to associate memories with specific agents.
         memory_type: Optional memory type classification. Use "procedural_memory" for
@@ -120,7 +119,9 @@ async def save_memory(ctx: Context, text: str, user_id: str = DEFAULT_USER_ID, a
         messages = [{"role": "user", "content": text}]
 
         # Prepare add parameters
-        add_params = {"user_id": user_id, "version": "v2"}
+        add_params = {"version": "v2"}
+        if user_id is not None:
+            add_params["user_id"] = user_id
         if agent_id:
             add_params["agent_id"] = agent_id
         if memory_type:
@@ -130,12 +131,13 @@ async def save_memory(ctx: Context, text: str, user_id: str = DEFAULT_USER_ID, a
 
         memory_type_str = f" ({memory_type})" if memory_type else ""
         agent_str = f" for agent '{agent_id}'" if agent_id else ""
-        return f"Successfully saved memory{memory_type_str} for user '{user_id}'{agent_str}: {text[:100]}..." if len(text) > 100 else f"Successfully saved memory{memory_type_str} for user '{user_id}'{agent_str}: {text}"
+        user_str = f" for user '{user_id}'" if user_id else " (anonymous/shared)"
+        return f"Successfully saved memory{memory_type_str}{user_str}{agent_str}: {text[:100]}..." if len(text) > 100 else f"Successfully saved memory{memory_type_str}{user_str}{agent_str}: {text}"
     except Exception as e:
         return f"Error saving memory: {str(e)}"
 
 @mcp.tool()
-async def get_all_memories(ctx: Context, user_id: str = DEFAULT_USER_ID, agent_id: str = None) -> str:
+async def get_all_memories(ctx: Context, user_id: Optional[str] = None, agent_id: Optional[str] = None) -> str:
     """Retrieve all stored memories for a user, optionally filtered by agent.
 
     This tool returns a complete list of all memories stored for a specific user. Use this
@@ -162,15 +164,22 @@ async def get_all_memories(ctx: Context, user_id: str = DEFAULT_USER_ID, agent_i
 
     Args:
         ctx: The MCP server provided context which includes the Mem0 client
-        user_id: User identifier to retrieve memories for a specific user (default: "user").
-                 Use the same user_id that was used when saving memories.
+        user_id: Optional user identifier to retrieve memories for a specific user.
+                 Use the same user_id that was used when saving memories. If None or not provided,
+                 retrieves anonymous/shared memories.
         agent_id: Optional agent identifier to filter memories for a specific agent.
                   When provided, only returns memories associated with this agent.
                   Useful for isolating procedural memories or agent-specific data.
     """
     try:
         mem0_client = ctx.request_context.lifespan_context.mem0_client
-        memories = mem0_client.get_all(user_id=user_id, version="v2")
+
+        # Prepare search parameters
+        search_params = {"version": "v2"}
+        if user_id is not None:
+            search_params["user_id"] = user_id
+
+        memories = mem0_client.get_all(**search_params)
 
         if isinstance(memories, dict) and "results" in memories:
             # Filter by agent_id if provided
@@ -190,7 +199,7 @@ async def get_all_memories(ctx: Context, user_id: str = DEFAULT_USER_ID, agent_i
         return f"Error retrieving memories: {str(e)}"
 
 @mcp.tool()
-async def search_memories(ctx: Context, query: str, limit: int = 3, user_id: str = DEFAULT_USER_ID, agent_id: str = None) -> str:
+async def search_memories(ctx: Context, query: str, limit: int = 3, user_id: Optional[str] = None, agent_id: Optional[str] = None) -> str:
     """Search memories using semantic search to find relevant information from stored knowledge.
 
     This tool performs semantic search across all stored memories to find the most relevant
@@ -232,15 +241,22 @@ async def search_memories(ctx: Context, query: str, limit: int = 3, user_id: str
                "project requirements discussion", "debugging steps for API errors".
         limit: Maximum number of results to return (default: 3, max recommended: 10).
                Higher limits may impact performance and relevance.
-        user_id: User identifier to search memories for a specific user (default: "user").
-                 Use the same user_id that was used when saving memories.
+        user_id: Optional user identifier to search memories for a specific user.
+                 Use the same user_id that was used when saving memories. If None or not provided,
+                 searches anonymous/shared memories.
         agent_id: Optional agent identifier to filter memories for a specific agent.
                   When provided, only searches memories associated with this agent.
                   Useful for finding agent-specific procedures or workflows.
     """
     try:
         mem0_client = ctx.request_context.lifespan_context.mem0_client
-        memories = mem0_client.search(query, user_id=user_id, limit=limit, version="v2")
+
+        # Prepare search parameters
+        search_params = {"query": query, "limit": limit, "version": "v2"}
+        if user_id is not None:
+            search_params["user_id"] = user_id
+
+        memories = mem0_client.search(**search_params)
 
         if isinstance(memories, dict) and "results" in memories:
             # Filter by agent_id if provided

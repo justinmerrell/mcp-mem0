@@ -119,7 +119,7 @@ async def save_memory(ctx: Context, text: str, user_id: Optional[str] = None, ag
         messages = [{"role": "user", "content": text}]
 
         # Prepare add parameters
-        add_params = {"api_version": "v2"}
+        add_params = {}
         if user_id is not None:
             add_params["user_id"] = user_id
         if agent_id:
@@ -175,7 +175,7 @@ async def get_all_memories(ctx: Context, user_id: Optional[str] = None, agent_id
         mem0_client = ctx.request_context.lifespan_context.mem0_client
 
         # Prepare search parameters
-        search_params = {"api_version": "v2"}
+        search_params = {}
         if user_id is not None:
             search_params["user_id"] = user_id
 
@@ -252,7 +252,7 @@ async def search_memories(ctx: Context, query: str, limit: int = 3, user_id: Opt
         mem0_client = ctx.request_context.lifespan_context.mem0_client
 
         # Prepare search parameters
-        search_params = {"query": query, "limit": limit, "api_version": "v2"}
+        search_params = {"query": query, "limit": limit}
         if user_id is not None:
             search_params["user_id"] = user_id
 

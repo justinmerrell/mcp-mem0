@@ -101,19 +101,39 @@ def get_mem0_client():
         if embedding_base_url:
             config["embedder"]["config"]["ollama_base_url"] = embedding_base_url
 
-    # Configure Supabase vector store
+    # Configure Supabase vector store with connection pooling
+    connection_string = os.environ.get('DATABASE_URL', '')
+
+    # Add connection pooling parameters to the connection string
+    if connection_string and '?' not in connection_string:
+        # Add connection pooling parameters
+        pool_size = os.environ.get('DB_POOL_SIZE', '5')
+        max_overflow = os.environ.get('DB_MAX_OVERFLOW', '10')
+        pool_timeout = os.environ.get('DB_POOL_TIMEOUT', '30')
+        pool_recycle = os.environ.get('DB_POOL_RECYCLE', '3600')
+        pool_pre_ping = os.environ.get('DB_POOL_PRE_PING', 'true')
+
+        connection_string += f"?pool_size={pool_size}&max_overflow={max_overflow}&pool_timeout={pool_timeout}&pool_recycle={pool_recycle}&pool_pre_ping={pool_pre_ping}"
+        logger.info(f"Added connection pooling parameters: pool_size={pool_size}, max_overflow={max_overflow}")
+    elif connection_string and '?' in connection_string:
+        # Connection string already has parameters, append pooling parameters
+        pool_size = os.environ.get('DB_POOL_SIZE', '5')
+        max_overflow = os.environ.get('DB_MAX_OVERFLOW', '10')
+        pool_timeout = os.environ.get('DB_POOL_TIMEOUT', '30')
+        pool_recycle = os.environ.get('DB_POOL_RECYCLE', '3600')
+        pool_pre_ping = os.environ.get('DB_POOL_PRE_PING', 'true')
+
+        connection_string += f"&pool_size={pool_size}&max_overflow={max_overflow}&pool_timeout={pool_timeout}&pool_recycle={pool_recycle}&pool_pre_ping={pool_pre_ping}"
+        logger.info(f"Appended connection pooling parameters: pool_size={pool_size}, max_overflow={max_overflow}")
+    else:
+        logger.warning("No DATABASE_URL provided")
+
     config["vector_store"] = {
         "provider": "supabase",
         "config": {
-            "connection_string": os.environ.get('DATABASE_URL', ''),
+            "connection_string": connection_string,
             "collection_name": "mem0_memories",
             "embedding_model_dims": 1536 if llm_provider == "openai" else 768,
-            # Add connection pooling configuration to prevent connection exhaustion
-            "pool_size": int(os.environ.get('DB_POOL_SIZE', '5')),  # Number of connections to maintain in the pool
-            "max_overflow": int(os.environ.get('DB_MAX_OVERFLOW', '10')),  # Maximum number of connections that can be created beyond pool_size
-            "pool_timeout": int(os.environ.get('DB_POOL_TIMEOUT', '30')),  # Timeout for getting a connection from the pool
-            "pool_recycle": int(os.environ.get('DB_POOL_RECYCLE', '3600')),  # Recycle connections after 1 hour
-            "pool_pre_ping": os.environ.get('DB_POOL_PRE_PING', 'true').lower() == 'true',  # Verify connections before use
         }
     }
 

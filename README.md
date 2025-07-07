@@ -289,6 +289,8 @@ If you encounter database connection errors like "remaining connection slots are
 
 5. **Enable Connection Pre-ping**: The default `DB_POOL_PRE_PING=true` verifies connections before use, which helps detect and replace bad connections.
 
+**Note**: Connection pooling parameters are automatically added to your `DATABASE_URL` connection string. The server will log the pooling configuration being used.
+
 ### Common Environment Variables for Connection Issues
 
 ```bash

@@ -19,9 +19,24 @@ import json
 import os
 import signal
 import sys
+import logging
+import traceback
 from typing import Optional
 
 from utils import get_mem0_client, reset_mem0_client
+
+# Set up logging
+log_level = os.getenv('LOG_LEVEL', 'INFO').upper()
+logging.basicConfig(
+    level=getattr(logging, log_level, logging.INFO),
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler('mcp-mem0.log')
+    ]
+)
+logger = logging.getLogger(__name__)
+logger.info(f"Logging level set to: {log_level}")
 
 # Load environment variables
 load_dotenv()
@@ -52,41 +67,60 @@ async def mem0_lifespan(server: FastMCP) -> AsyncIterator[Mem0Context]:
         The get_mem0_client function handles the singleton pattern and retry logic.
         This lifespan function only manages the lifecycle and cleanup.
     """
+    logger.info("Initializing Mem0 client for MCP server")
+
     # Create and return the Memory client with the helper function in utils.py
     # The get_mem0_client function already handles singleton pattern and retry logic
-    mem0_client = get_mem0_client()
+    try:
+        mem0_client = get_mem0_client()
+        logger.info("Successfully initialized Mem0 client")
+    except Exception as e:
+        logger.error(f"Failed to initialize Mem0 client: {e}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        raise
 
     try:
         yield Mem0Context(mem0_client=mem0_client)
     finally:
         # Cleanup: Close any open connections
+        logger.info("Cleaning up Mem0 client connections")
         try:
             # Try to close the Mem0 client directly
             if hasattr(mem0_client, 'close'):
                 await mem0_client.close()
+                logger.debug("Closed Mem0 client directly")
             elif hasattr(mem0_client, '_client') and hasattr(mem0_client._client, 'close'):
                 await mem0_client._client.close()
+                logger.debug("Closed Mem0 client._client")
 
             # Try to close underlying database connections
             if hasattr(mem0_client, '_vector_store') and hasattr(mem0_client._vector_store, 'close'):
                 await mem0_client._vector_store.close()
+                logger.debug("Closed vector store")
 
             # Try to close vecs client database connections
             if hasattr(mem0_client, '_vector_store') and hasattr(mem0_client._vector_store, 'db'):
                 vecs_client = mem0_client._vector_store.db
                 if hasattr(vecs_client, 'engine') and hasattr(vecs_client.engine, 'dispose'):
                     vecs_client.engine.dispose()
+                    logger.debug("Disposed vecs client engine")
                 elif hasattr(vecs_client, 'close'):
                     await vecs_client.close()
+                    logger.debug("Closed vecs client")
 
             # Try to close any HTTP clients
             if hasattr(mem0_client, '_llm_client') and hasattr(mem0_client._llm_client, 'close'):
                 await mem0_client._llm_client.close()
+                logger.debug("Closed LLM client")
             if hasattr(mem0_client, '_embedder_client') and hasattr(mem0_client._embedder_client, 'close'):
                 await mem0_client._embedder_client.close()
+                logger.debug("Closed embedder client")
+
+            logger.info("Successfully cleaned up all Mem0 client connections")
 
         except Exception as e:
-            print(f"Warning: Error during cleanup: {e}")
+            logger.warning(f"Error during cleanup: {e}")
+            logger.debug(f"Cleanup traceback: {traceback.format_exc()}")
         finally:
             # Only reset the global client instance if we're shutting down
             # Don't reset it on every request to maintain the singleton pattern
@@ -145,12 +179,17 @@ async def save_memory(ctx: Context, text: str, user_id: Optional[str] = None, ag
         str: Success message with details about the saved memory
     """
     try:
+        logger.info(f"Attempting to save memory - Text length: {len(text)}, User ID: {user_id}, Agent ID: {agent_id}, Memory Type: {memory_type}")
+
         mem0_client = ctx.request_context.lifespan_context.mem0_client
 
         # Prepare add parameters
         add_params = {"user_id": user_id, "agent_id": agent_id, "memory_type": memory_type}
+        logger.debug(f"Memory add parameters: {add_params}")
 
-        mem0_client.add(text, **add_params)
+        # Attempt to add memory
+        result = mem0_client.add(text, **add_params)
+        logger.info(f"Successfully added memory to Mem0 client")
 
         # Build response message
         parts = ["Successfully saved memory"]
@@ -165,9 +204,27 @@ async def save_memory(ctx: Context, text: str, user_id: Optional[str] = None, ag
 
         message = " ".join(parts) + ": "
         message += text[:100] + "..." if len(text) > 100 else text
+
+        logger.info(f"Memory saved successfully: {message}")
         return message
+
     except Exception as e:
-        return f"Error saving memory: {str(e)}"
+        error_msg = f"Error saving memory: {str(e)}"
+        logger.error(f"Failed to save memory: {e}")
+        logger.error(f"Error type: {type(e).__name__}")
+        logger.error(f"Full traceback: {traceback.format_exc()}")
+
+        # Provide more specific error messages based on exception type
+        if "connection" in str(e).lower() or "database" in str(e).lower():
+            error_msg += "\n\nPossible causes:\n- Database connection issue\n- Invalid DATABASE_URL\n- Database server is down\n- Network connectivity problem"
+        elif "api" in str(e).lower() or "key" in str(e).lower():
+            error_msg += "\n\nPossible causes:\n- Invalid LLM API key\n- API quota exceeded\n- LLM service is down\n- Incorrect LLM_PROVIDER configuration"
+        elif "embedding" in str(e).lower():
+            error_msg += "\n\nPossible causes:\n- Embedding model configuration issue\n- Invalid EMBEDDING_MODEL_CHOICE\n- Embedding service is down"
+        elif "memory" in str(e).lower() or "text" in str(e).lower():
+            error_msg += "\n\nPossible causes:\n- Text too long for the model\n- Invalid text format\n- Memory processing failed"
+
+        return error_msg
 
 @mcp.tool()
 async def get_all_memories(ctx: Context, user_id: Optional[str] = None, agent_id: Optional[str] = None) -> str:
@@ -208,22 +265,44 @@ async def get_all_memories(ctx: Context, user_id: Optional[str] = None, agent_id
         str: JSON string containing all memories for the specified user/agent
     """
     try:
+        logger.info(f"Attempting to retrieve all memories - User ID: {user_id}, Agent ID: {agent_id}")
+
         mem0_client = ctx.request_context.lifespan_context.mem0_client
 
         # Prepare search parameters
         search_params = {"user_id": user_id, "agent_id": agent_id}
+        logger.debug(f"Memory retrieval parameters: {search_params}")
 
         memories = mem0_client.get_all(**search_params)
+        logger.info(f"Successfully retrieved memories from Mem0 client")
 
         # Handle response format
         if isinstance(memories, dict) and "results" in memories:
             flattened_memories = [memory["memory"] for memory in memories["results"]]
+            logger.debug(f"Retrieved {len(flattened_memories)} memories from results dict")
         else:
             flattened_memories = memories
+            logger.debug(f"Retrieved {len(flattened_memories) if hasattr(flattened_memories, '__len__') else 'unknown'} memories")
 
-        return json.dumps(flattened_memories, indent=2)
+        result = json.dumps(flattened_memories, indent=2)
+        logger.info(f"Successfully formatted {len(flattened_memories) if hasattr(flattened_memories, '__len__') else 'unknown'} memories as JSON")
+        return result
+
     except Exception as e:
-        return f"Error retrieving memories: {str(e)}"
+        error_msg = f"Error retrieving memories: {str(e)}"
+        logger.error(f"Failed to retrieve memories: {e}")
+        logger.error(f"Error type: {type(e).__name__}")
+        logger.error(f"Full traceback: {traceback.format_exc()}")
+
+        # Provide more specific error messages based on exception type
+        if "connection" in str(e).lower() or "database" in str(e).lower():
+            error_msg += "\n\nPossible causes:\n- Database connection issue\n- Invalid DATABASE_URL\n- Database server is down\n- Network connectivity problem"
+        elif "json" in str(e).lower():
+            error_msg += "\n\nPossible causes:\n- Memory data format issue\n- Invalid memory structure\n- JSON serialization problem"
+        elif "permission" in str(e).lower() or "access" in str(e).lower():
+            error_msg += "\n\nPossible causes:\n- Database permission issue\n- Invalid user_id/agent_id\n- Access denied to memory collection"
+
+        return error_msg
 
 @mcp.tool()
 async def search_memories(ctx: Context, query: str, limit: int = 3, user_id: Optional[str] = None, agent_id: Optional[str] = None) -> str:
@@ -279,22 +358,144 @@ async def search_memories(ctx: Context, query: str, limit: int = 3, user_id: Opt
         str: JSON string containing search results ranked by relevance
     """
     try:
+        logger.info(f"Attempting to search memories - Query: '{query[:50]}{'...' if len(query) > 50 else ''}', Limit: {limit}, User ID: {user_id}, Agent ID: {agent_id}")
+
         mem0_client = ctx.request_context.lifespan_context.mem0_client
 
         # Prepare search parameters
         search_params = {"query": query, "limit": limit, "user_id": user_id, "agent_id": agent_id}
+        logger.debug(f"Memory search parameters: {search_params}")
 
         memories = mem0_client.search(**search_params)
+        logger.info(f"Successfully searched memories from Mem0 client")
 
         # Handle response format
         if isinstance(memories, dict) and "results" in memories:
             flattened_memories = [memory["memory"] for memory in memories["results"]]
+            logger.debug(f"Found {len(flattened_memories)} memories from results dict")
         else:
             flattened_memories = memories
+            logger.debug(f"Found {len(flattened_memories) if hasattr(flattened_memories, '__len__') else 'unknown'} memories")
 
-        return json.dumps(flattened_memories, indent=2)
+        result = json.dumps(flattened_memories, indent=2)
+        logger.info(f"Successfully formatted {len(flattened_memories) if hasattr(flattened_memories, '__len__') else 'unknown'} search results as JSON")
+        return result
+
     except Exception as e:
-        return f"Error searching memories: {str(e)}"
+        error_msg = f"Error searching memories: {str(e)}"
+        logger.error(f"Failed to search memories: {e}")
+        logger.error(f"Error type: {type(e).__name__}")
+        logger.error(f"Full traceback: {traceback.format_exc()}")
+
+        # Provide more specific error messages based on exception type
+        if "connection" in str(e).lower() or "database" in str(e).lower():
+            error_msg += "\n\nPossible causes:\n- Database connection issue\n- Invalid DATABASE_URL\n- Database server is down\n- Network connectivity problem"
+        elif "embedding" in str(e).lower():
+            error_msg += "\n\nPossible causes:\n- Embedding model configuration issue\n- Invalid EMBEDDING_MODEL_CHOICE\n- Embedding service is down\n- Query too long for embedding model"
+        elif "api" in str(e).lower() or "key" in str(e).lower():
+            error_msg += "\n\nPossible causes:\n- Invalid LLM API key\n- API quota exceeded\n- LLM service is down\n- Incorrect LLM_PROVIDER configuration"
+        elif "query" in str(e).lower() or "search" in str(e).lower():
+            error_msg += "\n\nPossible causes:\n- Invalid search query format\n- Query too long or empty\n- Search index not available"
+        elif "json" in str(e).lower():
+            error_msg += "\n\nPossible causes:\n- Memory data format issue\n- Invalid memory structure\n- JSON serialization problem"
+
+        return error_msg
+
+@mcp.tool()
+async def debug_memory_system(ctx: Context) -> str:
+    """Debug the memory system to check configuration and connectivity.
+
+    This tool provides detailed information about the current memory system
+    configuration, including database connectivity, LLM provider status, and
+    any potential issues. Use this when troubleshooting memory operations.
+
+    **When to use:**
+    - Diagnosing memory save/retrieve failures
+    - Checking system configuration
+    - Verifying database connectivity
+    - Troubleshooting LLM provider issues
+    - Validating environment variables
+
+    Returns:
+        str: Detailed diagnostic information about the memory system
+    """
+    try:
+        logger.info("Running memory system diagnostics")
+
+        mem0_client = ctx.request_context.lifespan_context.mem0_client
+
+        # Collect diagnostic information
+        diagnostics = {
+            "timestamp": str(asyncio.get_event_loop().time()),
+            "environment": {},
+            "client_status": {},
+            "recommendations": []
+        }
+
+        # Check environment variables
+        env_vars = [
+            'LLM_PROVIDER', 'LLM_CHOICE', 'EMBEDDING_MODEL_CHOICE',
+            'DATABASE_URL', 'DB_CONNECTION_RETRIES', 'DB_RETRY_DELAY',
+            'LOG_LEVEL', 'TRANSPORT'
+        ]
+
+        for var in env_vars:
+            value = os.getenv(var)
+            if value:
+                # Mask sensitive values
+                if 'KEY' in var or 'URL' in var:
+                    if '@' in value:
+                        # For database URLs, show only the host part
+                        safe_value = f"...@{value.split('@')[1]}"
+                    else:
+                        safe_value = f"{value[:8]}..." if len(value) > 8 else "***"
+                else:
+                    safe_value = value
+                diagnostics["environment"][var] = safe_value
+            else:
+                diagnostics["environment"][var] = "NOT_SET"
+                if var in ['LLM_PROVIDER', 'DATABASE_URL']:
+                    diagnostics["recommendations"].append(f"Set {var} environment variable")
+
+        # Check client attributes
+        try:
+            diagnostics["client_status"]["has_vector_store"] = hasattr(mem0_client, '_vector_store')
+            diagnostics["client_status"]["has_llm_client"] = hasattr(mem0_client, '_llm_client')
+            diagnostics["client_status"]["has_embedder_client"] = hasattr(mem0_client, '_embedder_client')
+
+            # Test basic operations
+            if hasattr(mem0_client, 'add'):
+                diagnostics["client_status"]["add_method_available"] = True
+            else:
+                diagnostics["client_status"]["add_method_available"] = False
+                diagnostics["recommendations"].append("Mem0 client missing 'add' method")
+
+            if hasattr(mem0_client, 'search'):
+                diagnostics["client_status"]["search_method_available"] = True
+            else:
+                diagnostics["client_status"]["search_method_available"] = False
+                diagnostics["recommendations"].append("Mem0 client missing 'search' method")
+
+        except Exception as e:
+            diagnostics["client_status"]["error"] = str(e)
+            diagnostics["recommendations"].append(f"Client status check failed: {e}")
+
+        # Add general recommendations
+        if not diagnostics["environment"].get('DATABASE_URL') or diagnostics["environment"].get('DATABASE_URL') == "NOT_SET":
+            diagnostics["recommendations"].append("DATABASE_URL is required for memory operations")
+
+        if not diagnostics["environment"].get('LLM_PROVIDER') or diagnostics["environment"].get('LLM_PROVIDER') == "NOT_SET":
+            diagnostics["recommendations"].append("LLM_PROVIDER is required for memory processing")
+
+        logger.info("Memory system diagnostics completed")
+        return json.dumps(diagnostics, indent=2)
+
+    except Exception as e:
+        error_msg = f"Error running diagnostics: {str(e)}"
+        logger.error(f"Failed to run diagnostics: {e}")
+        logger.error(f"Error type: {type(e).__name__}")
+        logger.error(f"Full traceback: {traceback.format_exc()}")
+        return error_msg
 
 async def main() -> None:
     """
@@ -304,10 +505,11 @@ async def main() -> None:
     with the appropriate transport protocol (SSE or stdio).
     """
     transport = os.getenv("TRANSPORT", "sse")
+    logger.info(f"Starting MCP-Mem0 server with transport: {transport}")
 
     # Set up signal handlers for graceful shutdown
     def signal_handler(signum, frame):
-        print(f"\nReceived signal {signum}. Shutting down gracefully...")
+        logger.info(f"Received signal {signum}. Shutting down gracefully...")
         shutdown_event.set()
         # Reset the global client instance on shutdown
         reset_mem0_client()
@@ -318,24 +520,31 @@ async def main() -> None:
 
     try:
         if transport == 'sse':
+            logger.info("Starting MCP server with SSE transport")
             # Run the MCP server with sse transport
             await mcp.run_sse_async()
         else:
+            logger.info("Starting MCP server with stdio transport")
             # Run the MCP server with stdio transport
             await mcp.run_stdio_async()
     except KeyboardInterrupt:
-        print("\nShutting down gracefully...")
+        logger.info("Shutting down gracefully due to keyboard interrupt...")
         reset_mem0_client()
     except Exception as e:
-        print(f"Error running server: {e}")
+        logger.error(f"Error running server: {e}")
+        logger.error(f"Error type: {type(e).__name__}")
+        logger.error(f"Full traceback: {traceback.format_exc()}")
         reset_mem0_client()
         sys.exit(1)
 
 if __name__ == "__main__":
     try:
+        logger.info("MCP-Mem0 server starting up...")
         asyncio.run(main())
     except KeyboardInterrupt:
-        print("\nServer stopped by user.")
+        logger.info("Server stopped by user.")
     except Exception as e:
-        print(f"Fatal error: {e}")
+        logger.error(f"Fatal error: {e}")
+        logger.error(f"Error type: {type(e).__name__}")
+        logger.error(f"Full traceback: {traceback.format_exc()}")
         sys.exit(1)

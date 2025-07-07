@@ -16,13 +16,14 @@ The implementation follows the best practices laid out by Anthropic for building
 
 ## Features
 
-The server provides five essential memory management tools:
+The server provides six essential memory management tools:
 
 1. **`save_memory`**: Store any information in long-term memory with semantic indexing
 2. **`save_procedural_memory`**: Store structured summaries of AI agent actions and interactions
 3. **`get_all_memories`**: Retrieve all stored memories for comprehensive context
 4. **`search_memories`**: Find relevant memories using semantic search
 5. **`search_procedural_memories`**: Search specifically for procedural memories
+6. **`debug_memory_system`**: Diagnostic tool to check system configuration and connectivity
 
 All tools support optional user isolation through a `user_id` parameter, allowing you to maintain separate memory spaces for different users or sessions. Procedural memory tools also support `agent_id` for tracking specific AI agents.
 
@@ -91,6 +92,7 @@ The following environment variables can be configured in your `.env` file:
 | `DATABASE_URL`           | PostgreSQL connection string                 | `postgresql://user:pass@host:port/db` |
 | `DB_CONNECTION_RETRIES`  | Number of connection retry attempts          | `3`                                   |
 | `DB_RETRY_DELAY`         | Delay between retry attempts (seconds)       | `5`                                   |
+| `LOG_LEVEL`              | Logging level (DEBUG, INFO, WARNING, ERROR)  | `INFO`                                |
 
 ## Running the Server
 
@@ -284,10 +286,34 @@ If you encounter database connection errors like "remaining connection slots are
 
 **Note**: The server now uses a singleton pattern to ensure only one Mem0 client instance is created, which helps prevent connection pool exhaustion. The retry logic will automatically attempt to reconnect if the database is temporarily unavailable.
 
+### Enhanced Logging and Debugging
+
+The server now includes comprehensive logging and debugging capabilities:
+
+1. **Log Levels**: Control logging verbosity with the `LOG_LEVEL` environment variable:
+
+   - `DEBUG`: Detailed debugging information
+   - `INFO`: General operational information (default)
+   - `WARNING`: Only warnings and errors
+   - `ERROR`: Only errors
+
+2. **Log Files**: All logs are saved to `mcp-mem0.log` in addition to console output
+
+3. **Debug Tool**: Use the `debug_memory_system` tool to diagnose configuration issues:
+
+   ```python
+   debug_memory_system()  # Returns detailed system diagnostics
+   ```
+
+4. **Enhanced Error Messages**: Error responses now include specific troubleshooting suggestions based on the error type
+
 ### Common Environment Variables for Connection Issues
 
 ```bash
 # Retry settings for connection issues
 DB_CONNECTION_RETRIES=5
 DB_RETRY_DELAY=10
+
+# Enhanced logging
+LOG_LEVEL=DEBUG
 ```

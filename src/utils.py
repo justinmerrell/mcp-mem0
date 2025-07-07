@@ -1,3 +1,10 @@
+"""
+Utility functions for the MCP-Mem0 server.
+
+This module provides functions for creating and managing the Mem0 client instance
+with proper singleton pattern and retry logic for database connections.
+"""
+
 from mem0 import Memory
 import os
 import time
@@ -23,7 +30,21 @@ Extract the Following Information:
 - Source: Record where this information came from when applicable.
 """
 
-def get_mem0_client():
+
+def get_mem0_client() -> Memory:
+    """
+    Get or create the Mem0 client instance with singleton pattern and retry logic.
+
+    This function implements a singleton pattern to ensure only one Mem0 client
+    is created per application instance, preventing connection pool exhaustion.
+    It also includes retry logic to handle temporary database connection failures.
+
+    Returns:
+        Memory: The Mem0 client instance
+
+    Raises:
+        Exception: If client creation fails after all retry attempts
+    """
     global _mem0_client
 
     # Return existing client if already created
@@ -101,32 +122,13 @@ def get_mem0_client():
         if embedding_base_url:
             config["embedder"]["config"]["ollama_base_url"] = embedding_base_url
 
-    # Configure Supabase vector store with connection pooling
+    # Configure Supabase vector store
     connection_string = os.environ.get('DATABASE_URL', '')
 
-    # Add connection pooling parameters to the connection string
-    if connection_string and '?' not in connection_string:
-        # Add connection pooling parameters
-        pool_size = os.environ.get('DB_POOL_SIZE', '5')
-        max_overflow = os.environ.get('DB_MAX_OVERFLOW', '10')
-        pool_timeout = os.environ.get('DB_POOL_TIMEOUT', '30')
-        pool_recycle = os.environ.get('DB_POOL_RECYCLE', '3600')
-        pool_pre_ping = os.environ.get('DB_POOL_PRE_PING', 'true')
-
-        connection_string += f"?pool_size={pool_size}&max_overflow={max_overflow}&pool_timeout={pool_timeout}&pool_recycle={pool_recycle}&pool_pre_ping={pool_pre_ping}"
-        logger.info(f"Added connection pooling parameters: pool_size={pool_size}, max_overflow={max_overflow}")
-    elif connection_string and '?' in connection_string:
-        # Connection string already has parameters, append pooling parameters
-        pool_size = os.environ.get('DB_POOL_SIZE', '5')
-        max_overflow = os.environ.get('DB_MAX_OVERFLOW', '10')
-        pool_timeout = os.environ.get('DB_POOL_TIMEOUT', '30')
-        pool_recycle = os.environ.get('DB_POOL_RECYCLE', '3600')
-        pool_pre_ping = os.environ.get('DB_POOL_PRE_PING', 'true')
-
-        connection_string += f"&pool_size={pool_size}&max_overflow={max_overflow}&pool_timeout={pool_timeout}&pool_recycle={pool_recycle}&pool_pre_ping={pool_pre_ping}"
-        logger.info(f"Appended connection pooling parameters: pool_size={pool_size}, max_overflow={max_overflow}")
-    else:
+    if not connection_string:
         logger.warning("No DATABASE_URL provided")
+    else:
+        logger.info("Using connection string for vector store")
 
     config["vector_store"] = {
         "provider": "supabase",
@@ -158,7 +160,14 @@ def get_mem0_client():
                 logger.error("Failed to create Mem0 client after all retries")
                 raise
 
-def reset_mem0_client():
-    """Reset the global Mem0 client instance. Useful for testing or container restarts."""
+
+def reset_mem0_client() -> None:
+    """
+    Reset the global Mem0 client instance.
+
+    This function is useful for testing or when the application needs to be restarted.
+    It clears the singleton instance, allowing a new client to be created on the next
+    call to get_mem0_client().
+    """
     global _mem0_client
     _mem0_client = None

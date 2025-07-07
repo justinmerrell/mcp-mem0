@@ -1,3 +1,13 @@
+"""
+MCP-Mem0 Server
+
+This module implements a Model Context Protocol (MCP) server that provides
+long-term memory storage and retrieval capabilities using the Mem0 library.
+
+The server supports both SSE and stdio transport protocols and provides tools
+for saving, searching, and retrieving memories with optional user and agent isolation.
+"""
+
 from mcp.server.fastmcp import FastMCP, Context
 from contextlib import asynccontextmanager
 from collections.abc import AsyncIterator
@@ -13,29 +23,37 @@ from typing import Optional
 
 from utils import get_mem0_client, reset_mem0_client
 
+# Load environment variables
 load_dotenv()
 
 # Global shutdown event
 shutdown_event = asyncio.Event()
 
-# Create a dataclass for our application context
 @dataclass
 class Mem0Context:
-    """Context for the Mem0 MCP server."""
+    """Context for the Mem0 MCP server containing the memory client."""
     mem0_client: Memory
 
 @asynccontextmanager
 async def mem0_lifespan(server: FastMCP) -> AsyncIterator[Mem0Context]:
     """
-    Manages the Mem0 client lifecycle.
+    Manage the Mem0 client lifecycle with proper cleanup.
+
+    This function creates a singleton Mem0 client instance and ensures proper
+    cleanup of database connections when the server shuts down.
 
     Args:
         server: The FastMCP server instance
 
     Yields:
         Mem0Context: The context containing the Mem0 client
+
+    Note:
+        The get_mem0_client function handles the singleton pattern and retry logic.
+        This lifespan function only manages the lifecycle and cleanup.
     """
     # Create and return the Memory client with the helper function in utils.py
+    # The get_mem0_client function already handles singleton pattern and retry logic
     mem0_client = get_mem0_client()
 
     try:
@@ -70,8 +88,9 @@ async def mem0_lifespan(server: FastMCP) -> AsyncIterator[Mem0Context]:
         except Exception as e:
             print(f"Warning: Error during cleanup: {e}")
         finally:
-            # Reset the global client instance
-            reset_mem0_client()
+            # Only reset the global client instance if we're shutting down
+            # Don't reset it on every request to maintain the singleton pattern
+            pass
 
 # Initialize FastMCP server with the Mem0 client as context
 mcp = FastMCP(
@@ -121,6 +140,9 @@ async def save_memory(ctx: Context, text: str, user_id: Optional[str] = None, ag
                   memory_type is "procedural_memory" to associate memories with specific agents.
         memory_type: Optional memory type classification. Use "procedural_memory" for
                      storing agent actions and workflows.
+
+    Returns:
+        str: Success message with details about the saved memory
     """
     try:
         mem0_client = ctx.request_context.lifespan_context.mem0_client
@@ -181,6 +203,9 @@ async def get_all_memories(ctx: Context, user_id: Optional[str] = None, agent_id
         agent_id: Optional agent identifier to filter memories for a specific agent.
                   When provided, only returns memories associated with this agent.
                   Useful for isolating procedural memories or agent-specific data.
+
+    Returns:
+        str: JSON string containing all memories for the specified user/agent
     """
     try:
         mem0_client = ctx.request_context.lifespan_context.mem0_client
@@ -249,6 +274,9 @@ async def search_memories(ctx: Context, query: str, limit: int = 3, user_id: Opt
         agent_id: Optional agent identifier to filter memories for a specific agent.
                   When provided, only searches memories associated with this agent.
                   Useful for finding agent-specific procedures or workflows.
+
+    Returns:
+        str: JSON string containing search results ranked by relevance
     """
     try:
         mem0_client = ctx.request_context.lifespan_context.mem0_client
@@ -268,13 +296,21 @@ async def search_memories(ctx: Context, query: str, limit: int = 3, user_id: Opt
     except Exception as e:
         return f"Error searching memories: {str(e)}"
 
-async def main():
+async def main() -> None:
+    """
+    Main entry point for the MCP server.
+
+    Sets up signal handlers for graceful shutdown and runs the server
+    with the appropriate transport protocol (SSE or stdio).
+    """
     transport = os.getenv("TRANSPORT", "sse")
 
     # Set up signal handlers for graceful shutdown
     def signal_handler(signum, frame):
         print(f"\nReceived signal {signum}. Shutting down gracefully...")
         shutdown_event.set()
+        # Reset the global client instance on shutdown
+        reset_mem0_client()
 
     # Register signal handlers
     signal.signal(signal.SIGINT, signal_handler)
@@ -289,8 +325,10 @@ async def main():
             await mcp.run_stdio_async()
     except KeyboardInterrupt:
         print("\nShutting down gracefully...")
+        reset_mem0_client()
     except Exception as e:
         print(f"Error running server: {e}")
+        reset_mem0_client()
         sys.exit(1)
 
 if __name__ == "__main__":

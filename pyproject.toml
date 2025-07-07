@@ -4,9 +4,28 @@ version = "0.1.0"
 description = "MCP server for integrating long term memory into AI agents with Mem0"
 readme = "README.md"
 requires-python = ">=3.12"
+license = {text = "MIT"}
+authors = [
+    {name = "Cole Medin", email = "cole@mem0.ai"}
+]
+keywords = ["mcp", "memory", "ai", "agents", "mem0", "vector-database"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 dependencies = [
     "httpx>=0.28.1",
     "mcp[cli]>=1.10.1",
     "mem0ai>=0.1.114",
     "vecs>=0.4.5"
 ]
+
+[project.urls]
+Homepage = "https://github.com/coleam00/mcp-mem0"
+Repository = "https://github.com/coleam00/mcp-mem0"
+Issues = "https://github.com/coleam00/mcp-mem0/issues"

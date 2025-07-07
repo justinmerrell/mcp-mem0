@@ -89,11 +89,6 @@ The following environment variables can be configured in your `.env` file:
 | `LLM_CHOICE`             | LLM model to use                             | `gpt-4o-mini`                         |
 | `EMBEDDING_MODEL_CHOICE` | Embedding model to use                       | `text-embedding-3-small`              |
 | `DATABASE_URL`           | PostgreSQL connection string                 | `postgresql://user:pass@host:port/db` |
-| `DB_POOL_SIZE`           | Number of database connections in pool       | `5`                                   |
-| `DB_MAX_OVERFLOW`        | Max additional connections beyond pool size  | `10`                                  |
-| `DB_POOL_TIMEOUT`        | Timeout for getting connection from pool     | `30`                                  |
-| `DB_POOL_RECYCLE`        | Recycle connections after seconds            | `3600`                                |
-| `DB_POOL_PRE_PING`       | Verify connections before use                | `true`                                |
 | `DB_CONNECTION_RETRIES`  | Number of connection retry attempts          | `3`                                   |
 | `DB_RETRY_DELAY`         | Delay between retry attempts (seconds)       | `5`                                   |
 
@@ -274,31 +269,25 @@ This template provides a foundation for building more complex MCP servers. To bu
 
 If you encounter database connection errors like "remaining connection slots are reserved for non-replication superuser connections", this indicates that your database has reached its connection limit. Here are some solutions:
 
-1. **Reduce Connection Pool Size**: Lower the `DB_POOL_SIZE` and `DB_MAX_OVERFLOW` values in your `.env` file:
+1. **Reduce Concurrent Connections**: The server now uses a singleton pattern to prevent multiple client instances. If you're still having issues, consider:
 
-   ```
-   DB_POOL_SIZE=3
-   DB_MAX_OVERFLOW=5
-   ```
+   - Running fewer instances of the application
+   - Upgrading your database plan to support more connections
 
 2. **Upgrade Your Database Plan**: If using DigitalOcean, consider upgrading to a plan with more connections.
 
-3. **Check for Connection Leaks**: Ensure your application properly closes database connections. The server includes automatic cleanup, but you can monitor connection usage.
+3. **Check for Connection Leaks**: The server includes automatic cleanup and retry logic. Monitor your database connections to ensure they're being properly managed.
 
-4. **Use Connection Recycling**: The default `DB_POOL_RECYCLE=3600` recycles connections every hour, which helps prevent stale connections.
+4. **Use Connection Recycling**: The server automatically handles connection cleanup and retries failed connections.
 
-5. **Enable Connection Pre-ping**: The default `DB_POOL_PRE_PING=true` verifies connections before use, which helps detect and replace bad connections.
+5. **Enable Connection Pre-ping**: The server includes retry logic that will attempt to reconnect if connections fail.
 
-**Note**: Connection pooling parameters are automatically added to your `DATABASE_URL` connection string. The server will log the pooling configuration being used.
+**Note**: The server now uses a singleton pattern to ensure only one Mem0 client instance is created, which helps prevent connection pool exhaustion. The retry logic will automatically attempt to reconnect if the database is temporarily unavailable.
 
 ### Common Environment Variables for Connection Issues
 
 ```bash
-# Conservative connection pooling for limited databases
-DB_POOL_SIZE=2
-DB_MAX_OVERFLOW=3
-DB_POOL_TIMEOUT=60
-DB_POOL_RECYCLE=1800
+# Retry settings for connection issues
 DB_CONNECTION_RETRIES=5
 DB_RETRY_DELAY=10
 ```

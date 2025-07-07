@@ -1,5 +1,11 @@
 from mem0 import Memory
 import os
+import time
+import logging
+
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Global client instance to prevent multiple collection creation
 _mem0_client = None
@@ -101,15 +107,36 @@ def get_mem0_client():
         "config": {
             "connection_string": os.environ.get('DATABASE_URL', ''),
             "collection_name": "mem0_memories",
-            "embedding_model_dims": 1536 if llm_provider == "openai" else 768
+            "embedding_model_dims": 1536 if llm_provider == "openai" else 768,
+            # Add connection pooling configuration to prevent connection exhaustion
+            "pool_size": int(os.environ.get('DB_POOL_SIZE', '5')),  # Number of connections to maintain in the pool
+            "max_overflow": int(os.environ.get('DB_MAX_OVERFLOW', '10')),  # Maximum number of connections that can be created beyond pool_size
+            "pool_timeout": int(os.environ.get('DB_POOL_TIMEOUT', '30')),  # Timeout for getting a connection from the pool
+            "pool_recycle": int(os.environ.get('DB_POOL_RECYCLE', '3600')),  # Recycle connections after 1 hour
+            "pool_pre_ping": os.environ.get('DB_POOL_PRE_PING', 'true').lower() == 'true',  # Verify connections before use
         }
     }
 
     # config["custom_fact_extraction_prompt"] = CUSTOM_INSTRUCTIONS
 
-    # Create and cache the Memory client (only once)
-    _mem0_client = Memory.from_config(config)
-    return _mem0_client
+    # Create and cache the Memory client with retry logic
+    max_retries = int(os.environ.get('DB_CONNECTION_RETRIES', '3'))
+    retry_delay = int(os.environ.get('DB_RETRY_DELAY', '5'))
+
+    for attempt in range(max_retries):
+        try:
+            logger.info(f"Attempting to create Mem0 client (attempt {attempt + 1}/{max_retries})")
+            _mem0_client = Memory.from_config(config)
+            logger.info("Successfully created Mem0 client")
+            return _mem0_client
+        except Exception as e:
+            logger.warning(f"Failed to create Mem0 client (attempt {attempt + 1}/{max_retries}): {e}")
+            if attempt < max_retries - 1:
+                logger.info(f"Retrying in {retry_delay} seconds...")
+                time.sleep(retry_delay)
+            else:
+                logger.error("Failed to create Mem0 client after all retries")
+                raise
 
 def reset_mem0_client():
     """Reset the global Mem0 client instance. Useful for testing or container restarts."""

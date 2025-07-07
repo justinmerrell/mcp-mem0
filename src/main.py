@@ -53,6 +53,14 @@ async def mem0_lifespan(server: FastMCP) -> AsyncIterator[Mem0Context]:
             if hasattr(mem0_client, '_vector_store') and hasattr(mem0_client._vector_store, 'close'):
                 await mem0_client._vector_store.close()
 
+            # Try to close vecs client database connections
+            if hasattr(mem0_client, '_vector_store') and hasattr(mem0_client._vector_store, 'db'):
+                vecs_client = mem0_client._vector_store.db
+                if hasattr(vecs_client, 'engine') and hasattr(vecs_client.engine, 'dispose'):
+                    vecs_client.engine.dispose()
+                elif hasattr(vecs_client, 'close'):
+                    await vecs_client.close()
+
             # Try to close any HTTP clients
             if hasattr(mem0_client, '_llm_client') and hasattr(mem0_client._llm_client, 'close'):
                 await mem0_client._llm_client.close()

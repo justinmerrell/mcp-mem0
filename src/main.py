@@ -151,11 +151,12 @@ async def save_memory(ctx: Context, text: str, user_id: Optional[str] = None, ag
     - Storing procedural memories (use memory_type="procedural_memory" with agent_id)
 
     **Examples:**
-    - "User prefers dark mode and uses Python for backend development"
-    - "Discussed project requirements: need authentication, user management, and API endpoints"
-    - "User's name is John, works at TechCorp, interested in AI and machine learning"
-    - For procedural memories: "Agent analyzed user requirements, created database schema with 3 tables,
-      implemented REST API endpoints, and deployed to staging environment. Process took 2 hours."
+    - save_memory("User prefers dark mode and uses Python for backend development")
+    - save_memory("Discussed project requirements: need authentication, user management, and API endpoints")
+    - save_memory("User's name is John, works at TechCorp, interested in AI and machine learning")
+    - save_memory("Agent analyzed user requirements, created database schema with 3 tables,
+      implemented REST API endpoints, and deployed to staging environment. Process took 2 hours.",
+      memory_type="procedural_memory", agent_id="coding_agent_001")
 
     **Limitations:**
     - Content is limited to text format
@@ -173,7 +174,8 @@ async def save_memory(ctx: Context, text: str, user_id: Optional[str] = None, ag
         agent_id: Optional agent identifier for procedural memory. Required when
                   memory_type is "procedural_memory" to associate memories with specific agents.
         memory_type: Optional memory type classification. Use "procedural_memory" for
-                     storing agent actions and workflows.
+                     storing agent actions and workflows. Leave empty or None for general memories.
+                     The Mem0 library only accepts "procedural_memory" as a valid memory type.
 
     Returns:
         str: Success message with details about the saved memory
@@ -183,8 +185,15 @@ async def save_memory(ctx: Context, text: str, user_id: Optional[str] = None, ag
 
         mem0_client = ctx.request_context.lifespan_context.mem0_client
 
-        # Prepare add parameters
-        add_params = {"user_id": user_id, "agent_id": agent_id, "memory_type": memory_type}
+        # Prepare add parameters - only include non-empty values
+        add_params = {}
+        if user_id:
+            add_params["user_id"] = user_id
+        if agent_id:
+            add_params["agent_id"] = agent_id
+        if memory_type and memory_type.strip():  # Only include if not empty
+            add_params["memory_type"] = memory_type.strip()
+
         logger.debug(f"Memory add parameters: {add_params}")
 
         # Attempt to add memory
@@ -215,7 +224,9 @@ async def save_memory(ctx: Context, text: str, user_id: Optional[str] = None, ag
         logger.error(f"Full traceback: {traceback.format_exc()}")
 
         # Provide more specific error messages based on exception type
-        if "connection" in str(e).lower() or "database" in str(e).lower():
+        if "memory_type" in str(e).lower():
+            error_msg += "\n\nPossible causes:\n- Invalid memory_type parameter\n- Use 'procedural_memory' for procedural memories\n- Leave memory_type empty for general memories\n- Memory type must be a valid string"
+        elif "connection" in str(e).lower() or "database" in str(e).lower():
             error_msg += "\n\nPossible causes:\n- Database connection issue\n- Invalid DATABASE_URL\n- Database server is down\n- Network connectivity problem"
         elif "api" in str(e).lower() or "key" in str(e).lower():
             error_msg += "\n\nPossible causes:\n- Invalid LLM API key\n- API quota exceeded\n- LLM service is down\n- Incorrect LLM_PROVIDER configuration"
